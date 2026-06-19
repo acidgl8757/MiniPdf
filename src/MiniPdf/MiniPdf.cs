@@ -57,6 +57,20 @@ public static class MiniPdf
     }
 
     /// <summary>
+    /// Converts an Excel (.xlsx) file to PDF with custom options.
+    /// </summary>
+    /// <param name="inputPath">Path to the source .xlsx file.</param>
+    /// <param name="outputPath">Path for the output .pdf file.</param>
+    /// <param name="options">Optional custom conversion settings.</param>
+    public static void ConvertToPdf(string inputPath, string outputPath, ExcelToPdfConverter.ConversionOptions? options = null)
+    {
+        if (options != null)
+            ExcelToPdfConverter.ConvertToFile(inputPath, outputPath, options);
+        else
+            ConvertToPdf(inputPath, outputPath);
+    }
+
+    /// <summary>
     /// Converts an Excel (.xlsx) file to a PDF byte array.
     /// </summary>
     /// <param name="inputPath">Path to the source .xlsx file.</param>
