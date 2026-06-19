@@ -6,12 +6,12 @@ namespace MiniSoftware;
 /// Converts Excel (.xlsx) files to PDF documents.
 /// Renders cell text in a simple table layout using the built-in Helvetica font.
 /// </summary>
-internal static class ExcelToPdfConverter
+public static class ExcelToPdfConverter
 {
     /// <summary>
     /// Options for controlling Excel-to-PDF conversion.
     /// </summary>
-    internal sealed class ConversionOptions
+    public sealed class ConversionOptions
     {
         /// <summary>Font size in points (default: 11).</summary>
         public float FontSize { get; set; } = 11;
@@ -34,11 +34,11 @@ internal static class ExcelToPdfConverter
         /// <summary>Line spacing multiplier (default: 1.5).</summary>
         public float LineSpacing { get; set; } = 1.5f;
 
-        /// <summary>Page width in points (default: 612 = US Letter).</summary>
-        public float PageWidth { get; set; } = 612;
+        /// <summary>Page width in points (default: 842 = A4 Landscape).</summary>
+        public float PageWidth { get; set; } = 842;
 
-        /// <summary>Page height in points (default: 792 = US Letter).</summary>
-        public float PageHeight { get; set; } = 792;
+        /// <summary>Page height in points (default: 595 = A4 Landscape).</summary>
+        public float PageHeight { get; set; } = 595;
 
         /// <summary>Whether to include sheet name as a header (default: false).</summary>
         public bool IncludeSheetName { get; set; } = false;
@@ -47,6 +47,11 @@ internal static class ExcelToPdfConverter
         /// during auto-row-height and rendering. Used when fitToHeight requires
         /// vertical compression to fit content on the specified number of pages.</summary>
         internal bool ScaleCellFonts { get; set; } = false;
+
+        /// <summary>When true, force each sheet to fit within a single page by
+        /// auto-calculating the required scale to compress both width and height.</summary>
+        public bool ForceSinglePage { get; set; } = false;
+
     }
 
     /// <summary>
@@ -265,6 +270,11 @@ internal static class ExcelToPdfConverter
         var mR = sheet.MarginRightPt > 0 ? sheet.MarginRightPt : options.MarginRight;
         var mT = sheet.MarginTopPt > 0 ? sheet.MarginTopPt : options.MarginTop;
         var mB = sheet.MarginBottomPt > 0 ? sheet.MarginBottomPt : options.MarginBottom;
+        // 当 options 中对应边距为 0 时，强制零边距（覆盖 xlsx 自带值）
+        if (options.MarginLeft == 0) mL = 0;
+        if (options.MarginRight == 0) mR = 0;
+        if (options.MarginTop == 0) mT = 0;
+        if (options.MarginBottom == 0) mB = 0;
 
         // fitToHeight: when fitToPage is active and fitToHeight is explicitly set
         // in the XML (> 0), recalculate printScale so all rows fit within the
