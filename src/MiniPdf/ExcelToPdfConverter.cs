@@ -2103,7 +2103,13 @@ public static class ExcelToPdfConverter
             // Polygon shapes (custom geometry from group shapes)
             if (shape.PolygonPoints is { Count: >= 3 } polyPts && shape.WidthEmu > 0 && shape.HeightEmu > 0)
             {
-                if (!rowTopY.TryGetValue(shape.FromRow, out var polyTop)) continue;
+                if (!rowTopY.TryGetValue(shape.FromRow, out var polyTop))
+                {
+                    if (rowTopY.Count > 0)
+                        polyTop = rowTopY.Values.Last() + lineHeight * (shape.FromRow - rowTopY.Keys.Last());
+                    else
+                        continue;
+                }
                 var polyFromIdx = Array.IndexOf(columns, shape.FromCol);
                 if (polyFromIdx < 0) polyFromIdx = 0;
 
@@ -2131,12 +2137,20 @@ public static class ExcelToPdfConverter
             }
 
             // Resolve anchor positions using rowTopY and colXStarts
+            // If the shape's rows exceed rendered data, estimate Y position
             if (!rowTopY.TryGetValue(shape.FromRow, out var shapeTop))
-                continue;
+            {
+                if (rowTopY.Count > 0)
+                    shapeTop = rowTopY.Values.Last() + lineHeight * (shape.FromRow - rowTopY.Keys.Last());
+                else
+                    shapeTop = pageHeight - options.MarginTop;
+            }
             if (!rowTopY.TryGetValue(shape.ToRow, out var shapeBot))
             {
-                // If toRow is beyond rendered rows, use bottom margin
-                shapeBot = options.MarginBottom;
+                if (rowTopY.Count > 0)
+                    shapeBot = rowTopY.Values.Last() + lineHeight * (shape.ToRow - rowTopY.Keys.Last());
+                else
+                    shapeBot = options.MarginBottom;
             }
 
             // Determine which column group the shape's from-column falls into
@@ -2172,6 +2186,18 @@ public static class ExcelToPdfConverter
                 shapePage.AddLine(shapeX, shapeBot, shapeXRight, shapeBot, bc, bw);         // bottom
                 shapePage.AddLine(shapeX, shapeTop, shapeX, shapeBot, bc, bw);              // left
                 shapePage.AddLine(shapeXRight, shapeTop, shapeXRight, shapeBot, bc, bw);    // right
+            }
+
+            // Render shape text
+            if (shape.TextLines is { Count: > 0 })
+            {
+                var txFontSize = 10f;
+                var txY = shapeTop - 2f;
+                foreach (var line in shape.TextLines)
+                {
+                    shapePage.AddText(line, shapeX + 2f, txY, txFontSize);
+                    txY -= txFontSize * 1.3f;
+                }
             }
         }
 

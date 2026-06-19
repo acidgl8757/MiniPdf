@@ -3506,12 +3506,26 @@ internal static class ExcelReader
                 }
             }
 
-            if (fillColor == null && borderColor == null) continue;
+            // Read shape text (txBody → a:p → a:r → a:t)
+            var textLines = new List<string>();
+            var txBody = sp.Element(xdr + "txBody");
+            if (txBody != null)
+            {
+                foreach (var p in txBody.Elements(a + "p"))
+                {
+                    var line = string.Concat(p.Descendants(a + "t").Select(t => t.Value));
+                    if (!string.IsNullOrEmpty(line))
+                        textLines.Add(line);
+                }
+            }
+
+            if (fillColor == null && borderColor == null && textLines.Count == 0) continue;
 
             shapes.Add(new ExcelDrawingShape(
                 fromRow, fromCol, toRow, toCol,
                 fromColOff, fromRowOff, toColOff, toRowOff,
-                fillColor, borderColor, borderWidthPt));
+                fillColor, borderColor, borderWidthPt,
+                TextLines: textLines.Count > 0 ? textLines : null));
         }
 
         return shapes;
@@ -4094,7 +4108,8 @@ internal sealed record ExcelDrawingShape(
     long OffsetYEmu = 0,
     long WidthEmu = 0,
     long HeightEmu = 0,
-    List<(float X, float Y)>? PolygonPoints = null
+    List<(float X, float Y)>? PolygonPoints = null,
+    List<string>? TextLines = null
 );
 
 internal sealed record ExcelEmbeddedImage(
