@@ -284,6 +284,80 @@ public static class ExcelToPdfConverter
         // row heights proportionally), factor that into the calculation to avoid
         // double-compression.
         var scaleCellFonts = false;
+
+        // 【Fork ForceSinglePage】强制缩放到 1 页（不足则填充宽度）
+        if (options.ForceSinglePage && sheet.Rows.Any(r => r.Count > 0))
+        {
+            var usableH = baseH - mT - mB;
+            var usableW = baseW - mL - mR;
+            var defRH = sheet.DefaultRowHeight > 0 ? sheet.DefaultRowHeight : options.FontSize * options.LineSpacing;
+            var startRow = sheet.PrintArea.HasValue ? sheet.PrintArea.Value.StartRow : 0;
+            var endRow = sheet.PrintArea.HasValue ? Math.Min(sheet.PrintArea.Value.EndRow, sheet.Rows.Count - 1) : Math.Max(0, sheet.Rows.Count - 1);
+            var rawTotalH = 0f;
+            var dataRowCount = 0;
+            for (var r = startRow; r <= endRow; r++)
+            {
+                if (sheet.Rows[r].Count > 0)
+                {
+                    rawTotalH += sheet.RowHeights.TryGetValue(r, out var rh) ? rh : defRH;
+                    dataRowCount++;
+                }
+            }
+            var rawTotalW = EstimateColumnWidthTotal(sheet, options);
+            var needScaleH = rawTotalH > 0 ? usableH / rawTotalH : 1f;
+            var needScaleW = rawTotalW > 0 ? usableW / rawTotalW : 1f;
+            var minScale = Math.Min(needScaleH, needScaleW);
+            // 等比例缩放：取宽高较小值（先到边界的先停止）
+            var fillScale = Math.Min(needScaleW, needScaleH);
+            if (fillScale != 1f)
+            {
+                var combined = (int)Math.Max(10, Math.Floor(fillScale * 100));
+                // 缩放行高使内容填满页面
+                var scaledRowHeights = new Dictionary<int, float>();
+                foreach (var kv in sheet.RowHeights)
+                    scaledRowHeights[kv.Key] = kv.Value * fillScale;
+                var scaledDefRH = sheet.DefaultRowHeight > 0 ? sheet.DefaultRowHeight * fillScale : 0f;
+                // 额外分配剩余垂直空间到各行，填满页面高度
+                var totalScaledH = 0f;
+                for (var r = startRow; r <= endRow; r++)
+                    totalScaledH += scaledRowHeights.TryGetValue(r, out var srh) ? srh : scaledDefRH;
+                var remainingH = usableH - totalScaledH;
+                // 只将剩余高度分配给有数据的行
+                if (remainingH > 0 && dataRowCount > 0)
+                {
+                    var extraPerRow = remainingH / dataRowCount;
+                    for (var r = startRow; r <= endRow; r++)
+                    {
+                        if (sheet.Rows[r].Count > 0)
+                        {
+                            if (scaledRowHeights.ContainsKey(r))
+                                scaledRowHeights[r] += extraPerRow;
+                            else
+                                scaledRowHeights[r] = (sheet.DefaultRowHeight > 0 ? sheet.DefaultRowHeight : options.FontSize * options.LineSpacing) + extraPerRow;
+                        }
+                    }
+                }
+                sheet = new ExcelSheet(sheet.Name, sheet.Rows,
+                    images: sheet.Images.Count > 0 ? sheet.Images : null,
+                    columnWidths: sheet.ColumnWidths, defaultColumnWidth: sheet.DefaultColumnWidth,
+                    charts: sheet.Charts.Count > 0 ? sheet.Charts : null,
+                    shapes: sheet.Shapes.Count > 0 ? sheet.Shapes : null,
+                    mergedCells: sheet.MergedCells, rowHeights: scaledRowHeights,
+                    defaultRowHeight: scaledDefRH > 0 ? scaledDefRH : sheet.DefaultRowHeight,
+                    customHeightRows: sheet.CustomHeightRows,
+                    isLandscape: sheet.IsLandscape, printScale: combined, paperSize: sheet.PaperSize,
+                    marginLeftPt: sheet.MarginLeftPt, marginRightPt: sheet.MarginRightPt,
+                    marginTopPt: sheet.MarginTopPt, marginBottomPt: sheet.MarginBottomPt,
+                    fitToPage: sheet.FitToPage, fitToWidth: sheet.FitToWidth, fitToHeight: sheet.FitToHeight,
+                    horizontalCentered: sheet.HorizontalCentered, printArea: sheet.PrintArea,
+                    printTitleRows: sheet.PrintTitleRows, rowBreaks: sheet.RowBreaks,
+                    oddFooter: sheet.OddFooter, footerMarginPt: sheet.FooterMarginPt,
+                    maxDigitWidthPx: sheet.MaxDigitWidthPx);
+                sheet.EffectivePrintScaleF = fillScale;
+                scaleCellFonts = true;
+            }
+        }
+
         if (sheet.FitToPage && sheet.FitToHeight > 0 && sheet.PrintScale > 0)
         {
             var usableH = baseH - mT - mB;
