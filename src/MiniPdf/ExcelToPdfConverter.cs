@@ -747,6 +747,12 @@ public static class ExcelToPdfConverter
 
         if (maxCols == 0)
         {
+            // Shape-only sheets: 加空白占位页，让 COM 后续替换
+            if (sheet.Shapes.Count > 0 || sheet.Images.Count > 0 || sheet.Charts.Count > 0)
+            {
+                doc.AddPage(baseW, baseH);
+                return;
+            }
             return;
         }
 
