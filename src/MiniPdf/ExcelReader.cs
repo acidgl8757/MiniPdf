@@ -3218,6 +3218,12 @@ internal static class ExcelReader
     private static List<ExcelDrawingShape> ReadSheetShapes(ZipArchive archive, int sheetId, List<PdfColor> themeColors)
     {
         var shapes = new List<ExcelDrawingShape>();
+
+        // 通过 LocalName + Namespace 子串匹配的安全元素查找，规避命名空间前缀重声明问题
+        static XElement? SafeEl(XElement parent, string localName, string nsSubStr) =>
+            parent.Elements().FirstOrDefault(e =>
+                e.Name.LocalName == localName && e.Name.NamespaceName.Contains(nsSubStr));
+        static string? SafeAttr(XElement? el, string attr) => el?.Attribute(attr)?.Value;
         var relsEntry = archive.GetEntry($"xl/worksheets/_rels/sheet{sheetId}.xml.rels");
         if (relsEntry == null) return shapes;
 
@@ -3253,7 +3259,7 @@ internal static class ExcelReader
         foreach (var anchor in dDoc.Descendants(xdr + "twoCellAnchor"))
         {
             // Handle group shapes: extract custGeom sp elements as polygons
-            var grpSp = anchor.Element(xdr + "grpSp");
+            var grpSp = SafeEl(anchor, "grpSp", "spreadsheetDrawing") ?? anchor.Elements().FirstOrDefault(e => e.Name.LocalName == "grpSp");
             if (grpSp != null)
             {
                 var grpXfrm = grpSp.Element(xdr + "grpSpPr")?.Element(a + "xfrm");
@@ -3288,7 +3294,7 @@ internal static class ExcelReader
                     int.TryParse(gToEl.Element(xdr + "col")?.Value, out gToCol);
                 }
 
-                foreach (var gSp in grpSp.Elements(xdr + "sp"))
+                foreach (var gSp in grpSp.Elements().Where(e => e.Name.LocalName == "sp" && e.Name.NamespaceName.Contains("spreadsheetDrawing")))
                 {
                     var gSpPr = gSp.Element(xdr + "spPr") ?? gSp.Element(a + "spPr");
                     if (gSpPr == null) continue;
@@ -3412,22 +3418,24 @@ internal static class ExcelReader
             }
 
             // Only process direct sp children (not grouped shapes)
-            var sp = anchor.Element(xdr + "sp");
+            var sp = SafeEl(anchor, "sp", "spreadsheetDrawing") ?? anchor.Elements().FirstOrDefault(e => e.Name.LocalName == "sp");
             if (sp == null) continue;
 
-            var spPr = sp.Element(xdr + "spPr") ?? sp.Element(a + "spPr");
+            var spPr = SafeEl(sp, "spPr", "spreadsheetDrawing") ?? SafeEl(sp, "spPr", "drawingml")
+                    ?? sp.Elements().FirstOrDefault(e => e.Name.LocalName == "spPr");
             if (spPr == null) continue;
 
             // Only render rectangle-like preset shapes
             var prstGeom = spPr.Element(a + "prstGeom");
             var prst = prstGeom?.Attribute("prst")?.Value ?? "";
-            if (prst is not ("rect" or "roundRect" or "round1Rect" or "round2SameRect"
+            var hasTxBody = (SafeEl(sp, "txBody", "spreadsheetDrawing") ?? sp.Elements().FirstOrDefault(e => e.Name.LocalName == "txBody")) != null;
+            if (!hasTxBody && prst is not ("rect" or "roundRect" or "round1Rect" or "round2SameRect"
                 or "round2DiagRect" or "snip1Rect" or "snip2SameRect" or "snipRoundRect"))
                 continue;
 
             // Read anchor positions
-            var fromEl = anchor.Element(xdr + "from");
-            var toEl = anchor.Element(xdr + "to");
+            var fromEl = SafeEl(anchor, "from", "spreadsheetDrawing") ?? anchor.Elements().FirstOrDefault(e => e.Name.LocalName == "from");
+            var toEl = SafeEl(anchor, "to", "spreadsheetDrawing") ?? anchor.Elements().FirstOrDefault(e => e.Name.LocalName == "to");
             if (fromEl == null || toEl == null) continue;
 
             int.TryParse(fromEl.Element(xdr + "row")?.Value, out var fromRow);
@@ -3508,7 +3516,7 @@ internal static class ExcelReader
 
             // Read shape text (txBody → a:p → a:r → a:t)
             var textLines = new List<string>();
-            var txBody = sp.Element(xdr + "txBody");
+            var txBody = SafeEl(sp, "txBody", "spreadsheetDrawing") ?? sp.Elements().FirstOrDefault(e => e.Name.LocalName == "txBody");
             if (txBody != null)
             {
                 foreach (var p in txBody.Elements(a + "p"))
@@ -3528,6 +3536,7 @@ internal static class ExcelReader
                 TextLines: textLines.Count > 0 ? textLines : null));
         }
 
+        System.Console.Error.WriteLine("RSHAPE total=" + shapes.Count);
         return shapes;
     }
 
