@@ -70,6 +70,11 @@ public static class MiniPdf
             ConvertToPdf(inputPath, outputPath);
     }
 
+    public static void ConvertToPdf(string inputPath, string outputPath, ExcelToPdfConverter.ConversionOptions? options, string sheetPagesPath)
+    {
+        ExcelToPdfConverter.ConvertToFile(inputPath, outputPath, options, sheetPagesPath);
+    }
+
     /// <summary>
     /// Converts an Excel (.xlsx) file to a PDF byte array.
     /// </summary>

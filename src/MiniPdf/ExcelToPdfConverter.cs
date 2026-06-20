@@ -52,6 +52,12 @@ public static class ExcelToPdfConverter
         /// auto-calculating the required scale to compress both width and height.</summary>
         public bool ForceSinglePage { get; set; } = false;
 
+        /// <summary>When true, render wide tables across multiple pages.
+        /// Width is compressed to fit 1 page; height flows naturally
+        /// with page breaks at row boundaries via EnsurePage().
+        /// Mutually exclusive with ForceSinglePage.</summary>
+        public bool WideTableMultiPage { get; set; } = false;
+
     }
 
     /// <summary>
@@ -119,6 +125,30 @@ public static class ExcelToPdfConverter
     {
         var doc = Convert(excelPath, options);
         doc.Save(pdfPath);
+    }
+
+    internal static void ConvertToFile(string excelPath, string pdfPath, ConversionOptions? options, string sheetPagesPath)
+    {
+        using var stream = File.OpenRead(excelPath);
+        options ??= new ConversionOptions();
+        var sheets = ExcelReader.ReadSheets(stream);
+        var doc = new PdfDocument();
+        var sheetPages = new Dictionary<string, int>();
+        foreach (var sheet in sheets)
+        {
+            var start = doc.Pages.Count;
+            RenderSheet(doc, sheet, options);
+            var count = doc.Pages.Count - start;
+            if (count > 0) sheetPages[sheet.Name] = count;
+        }
+        if (doc.Pages.Count == 0)
+            doc.AddPage(options.PageWidth, options.PageHeight);
+        doc.Save(pdfPath);
+        if (sheetPagesPath != null)
+        {
+            var json = "{\n" + string.Join(",\n", sheetPages.Select(kv => "  \"" + kv.Key + "\": " + kv.Value)) + "\n}";
+            File.WriteAllText(sheetPagesPath, json);
+        }
     }
 
     /// <summary>
@@ -285,8 +315,41 @@ public static class ExcelToPdfConverter
         // double-compression.
         var scaleCellFonts = false;
 
+        // 【Fork WideTableMultiPage】缩放到页面宽度，同步缩放字号保持比例
+        if (options.WideTableMultiPage && sheet.Rows.Any(r => r.Count > 0))
+        {
+            var usableW = baseW - mL - mR;
+            var rawTotalW = EstimateColumnWidthTotal(sheet, options);
+            var widthScale = rawTotalW > 0 ? usableW / rawTotalW : 1f;
+            if (widthScale < 1f)
+            {
+                var combined = (int)Math.Max(10, Math.Floor(widthScale * 100));
+                sheet = new ExcelSheet(sheet.Name, sheet.Rows,
+                    images: sheet.Images.Count > 0 ? sheet.Images : null,
+                    columnWidths: sheet.ColumnWidths,
+                    defaultColumnWidth: sheet.DefaultColumnWidth,
+                    charts: sheet.Charts.Count > 0 ? sheet.Charts : null,
+                    shapes: sheet.Shapes.Count > 0 ? sheet.Shapes : null,
+                    mergedCells: sheet.MergedCells,
+                    rowHeights: sheet.RowHeights,
+                    defaultRowHeight: sheet.DefaultRowHeight,
+                    customHeightRows: sheet.CustomHeightRows,
+                    isLandscape: sheet.IsLandscape,
+                    printScale: combined,
+                    paperSize: sheet.PaperSize,
+                    marginLeftPt: sheet.MarginLeftPt, marginRightPt: sheet.MarginRightPt,
+                    marginTopPt: sheet.MarginTopPt, marginBottomPt: sheet.MarginBottomPt,
+                    fitToPage: sheet.FitToPage, fitToWidth: sheet.FitToWidth, fitToHeight: sheet.FitToHeight,
+                    horizontalCentered: sheet.HorizontalCentered,
+                    printArea: sheet.PrintArea, printTitleRows: sheet.PrintTitleRows,
+                    rowBreaks: sheet.RowBreaks, oddFooter: sheet.OddFooter,
+                    footerMarginPt: sheet.FooterMarginPt, maxDigitWidthPx: sheet.MaxDigitWidthPx);
+                sheet.EffectivePrintScaleF = widthScale;
+            }
+        }
+
         // 【Fork ForceSinglePage】强制缩放到 1 页（不足则填充宽度）
-        if (options.ForceSinglePage && sheet.Rows.Any(r => r.Count > 0))
+        if (!options.WideTableMultiPage && options.ForceSinglePage && sheet.Rows.Any(r => r.Count > 0))
         {
             var usableH = baseH - mT - mB;
             var usableW = baseW - mL - mR;
@@ -570,6 +633,8 @@ public static class ExcelToPdfConverter
             PageHeight = baseH * pageScaleUp,
             IncludeSheetName = options.IncludeSheetName,
             ScaleCellFonts = scaleCellFonts,
+            ForceSinglePage = options.ForceSinglePage,
+            WideTableMultiPage = options.WideTableMultiPage,
         };
 
         // Apply print area: limit rows and columns to the defined range
@@ -830,7 +895,7 @@ public static class ExcelToPdfConverter
             fitToPageScale = fitScale;
         }
 
-        if (naturalWidths.Sum() > usableWidth && maxCols > 1)
+        if (naturalWidths.Sum() > usableWidth && maxCols > 1 && !options.WideTableMultiPage)
         {
             // Columns don't fit — split into groups that fit on a page each
             RenderSheetColumnGroups(doc, sheet, options, pageWidth, pageHeight, usableWidth, columnPadding, avgCharWidth, naturalWidths);
@@ -838,7 +903,8 @@ public static class ExcelToPdfConverter
         else
         {
             // Single group — scale to fit if needed
-            var colWidths = ScaleColumnWidths(naturalWidths, usableWidth, columnPadding, avgCharWidth);
+            var colWidths = ScaleColumnWidths(naturalWidths, usableWidth, columnPadding, avgCharWidth,
+                fillToWidth: options.WideTableMultiPage);
 
             // horizontalCentered: shift content right so it is centered in usable width
             if (sheet.HorizontalCentered)
@@ -4015,13 +4081,13 @@ public static class ExcelToPdfConverter
     /// <summary>
     /// Scales column widths to fit within usable width if they exceed it.
     /// </summary>
-    private static float[] ScaleColumnWidths(float[] naturalWidths, float usableWidth, float columnPadding, float avgCharWidth)
+    private static float[] ScaleColumnWidths(float[] naturalWidths, float usableWidth, float columnPadding, float avgCharWidth, bool fillToWidth = false)
     {
         var maxCols = naturalWidths.Length;
         var totalPadding = columnPadding * (maxCols - 1);
         var total = naturalWidths.Sum() + totalPadding;
 
-        if (total <= usableWidth)
+        if (!fillToWidth && total <= usableWidth)
             return (float[])naturalWidths.Clone();
 
         var result = (float[])naturalWidths.Clone();
