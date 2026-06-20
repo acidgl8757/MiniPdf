@@ -3404,15 +3404,16 @@ internal static class ExcelReader
                     }
                     if (polyPts.Count < 3) continue;
 
-                    shapes.Add(new ExcelDrawingShape(
-                        gFromRow, gFromCol, gToRow, gToCol,
-                        gFromColOff, gFromRowOff, 0, 0,
-                        gFill, null, 0,
-                        OffsetXEmu: offsetXEmu,
-                        OffsetYEmu: offsetYEmu,
-                        WidthEmu: wEmu,
-                        HeightEmu: hEmu,
-                        PolygonPoints: polyPts));
+                    shapes.Add(new ExcelDrawingShape
+                    {
+                        FromRow = gFromRow, FromCol = gFromCol,
+                        ToRow = gToRow, ToCol = gToCol,
+                        FromColOffEmu = gFromColOff, FromRowOffEmu = gFromRowOff,
+                        FillColor = gFill, BorderWidthPt = 0,
+                        OffsetXEmu = offsetXEmu, OffsetYEmu = offsetYEmu,
+                        WidthEmu = wEmu, HeightEmu = hEmu,
+                        PolygonPoints = polyPts
+                    });
                 }
                 continue;
             }
@@ -3529,11 +3530,16 @@ internal static class ExcelReader
 
             if (fillColor == null && borderColor == null && textLines.Count == 0) continue;
 
-            shapes.Add(new ExcelDrawingShape(
-                fromRow, fromCol, toRow, toCol,
-                fromColOff, fromRowOff, toColOff, toRowOff,
-                fillColor, borderColor, borderWidthPt,
-                TextLines: textLines.Count > 0 ? textLines : null));
+            shapes.Add(new ExcelDrawingShape
+            {
+                FromRow = fromRow, FromCol = fromCol,
+                ToRow = toRow, ToCol = toCol,
+                FromColOffEmu = fromColOff, FromRowOffEmu = fromRowOff,
+                ToColOffEmu = toColOff, ToRowOffEmu = toRowOff,
+                FillColor = fillColor, BorderColor = borderColor,
+                BorderWidthPt = borderWidthPt,
+                TextLines = textLines.Count > 0 ? textLines : null
+            });
         }
 
         System.Console.Error.WriteLine("RSHAPE total=" + shapes.Count);
@@ -4107,19 +4113,26 @@ internal sealed record ExcelCell(
 /// <summary>
 /// Represents a decorative shape (rectangle, rounded rectangle) from XLSX drawings.
 /// </summary>
-internal sealed record ExcelDrawingShape(
-    int FromRow, int FromCol, int ToRow, int ToCol,
-    long FromColOffEmu, long FromRowOffEmu, long ToColOffEmu, long ToRowOffEmu,
-    PdfColor? FillColor,
-    PdfColor? BorderColor,
-    float BorderWidthPt,
-    long OffsetXEmu = 0,
-    long OffsetYEmu = 0,
-    long WidthEmu = 0,
-    long HeightEmu = 0,
-    List<(float X, float Y)>? PolygonPoints = null,
-    List<string>? TextLines = null
-);
+internal sealed class ExcelDrawingShape
+{
+    public int FromRow { get; init; }
+    public int FromCol { get; init; }
+    public int ToRow { get; init; }
+    public int ToCol { get; init; }
+    public long FromColOffEmu { get; init; }
+    public long FromRowOffEmu { get; init; }
+    public long ToColOffEmu { get; init; }
+    public long ToRowOffEmu { get; init; }
+    public PdfColor? FillColor { get; init; }
+    public PdfColor? BorderColor { get; init; }
+    public float BorderWidthPt { get; init; }
+    public long OffsetXEmu { get; init; }
+    public long OffsetYEmu { get; init; }
+    public long WidthEmu { get; init; }
+    public long HeightEmu { get; init; }
+    public List<(float X, float Y)>? PolygonPoints { get; init; }
+    public List<string>? TextLines { get; init; }
+}
 
 internal sealed record ExcelEmbeddedImage(
     int AnchorRow,    // 0-based row index of the top-left anchor
